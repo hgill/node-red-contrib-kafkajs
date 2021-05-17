@@ -17,6 +17,10 @@
         <input type="text" id="node-input-topic" placeholder="Topic">
     </div>
     <div class="form-row">
+        <label for="node-input-delegatedRetries" style="display: inline-block; width: auto; vertical-align: top;"><i class="fa  fa-cogs"></i> Delegated Retries</label>
+		<input id="node-input-delegatedRetries" type="checkbox" style="width:30%">
+    </div>
+    <div class="form-row">
         <label for="node-input-advancedoptions" style="display: inline-block; width: auto; vertical-align: top;"><i class="fa  fa-cogs"></i> Advanced Options</label>
 		<input id="node-input-advancedoptions" type="checkbox" style="width:30%">
     </div>
@@ -68,6 +72,7 @@
             name: {value:"",required:false},
             client: {type:"kafkajs-client"},
             topic: {value:"",required:false},
+            delegatedRetries:{value: false, require:false},
             advancedoptions: {value: false, require:false},
             acknowledge: {value: "all", require:false},
             partition: {value: null, required:false},
@@ -131,6 +136,7 @@
             items.each(function(i, val){
                 node.headeritems[val.find(".node-input-header-key").val()] = val.find(".node-input-header-value").val();
             });
+
         },
         oneditresize: function(size) {
 

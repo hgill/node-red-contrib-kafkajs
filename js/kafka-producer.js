@@ -7,6 +7,11 @@ module.exports = function(RED) {
         "leader": 1
     }
 
+    const delegatedRetriesDict = {
+        "SERVER_DOWN": "SERVER_DOWN",
+        "SERVER_UP": "SERVER_UP"
+    }
+
     function KafkajsProducerNode(config) {
         RED.nodes.createNode(this,config);
         var node = this;
@@ -65,9 +70,12 @@ module.exports = function(RED) {
             await producer.connect();   
         }
 
+        if(!config.delegatedRetries){
         node.init();
-
+        }
+        
         function checkLastMessageTime() {
+            if(node.ready){//we only want to reset to Idle when node is working fine.
             if(node.lastMessageTime != null){
                 timeDiff = new Date().getTime() - node.lastMessageTime;
                 if(timeDiff > 5000){
@@ -75,10 +83,30 @@ module.exports = function(RED) {
                 } 
             }   
         }
+        }
           
         node.interval = setInterval(checkLastMessageTime, 1000);
 
         node.on('input', function(msg) {
+            if(config.delegatedRetries){
+                if(msg.serviceStatus && msg.payload==null){
+                    //this is a service status message. 
+                    node.log("Input>>Service Status message received: "+msg.serviceStatus);
+                    if(msg.serviceStatus==delegatedRetriesDict.SERVER_DOWN){
+                        //close open connection
+                        node.disconnect()
+                        .then(node.onDisconnect);
+                    }else if(msg.serviceStatus==delegatedRetriesDict.SERVER_UP && !node.ready){
+                        //open new connection
+                        node.init()
+                        .then(node.onConnect);
+                    }else{
+                        node.log("Not doing anything with service status")
+                    }
+                }else if(msg.serviceStatus && msg.payload!=null){
+                    throw new Error("Bad Input: Service Status cannot carry payload")
+                }
+            }
             if(node.ready){
                 if(msg.payload){
 
@@ -110,8 +138,23 @@ module.exports = function(RED) {
                     node.lastMessageTime = new Date().getTime();
                     node.status({fill:"blue",shape:"ring",text:"Sending"});
                 }
+            }else if(!node.ready && msg.payload!=null){
+                node.log("Received message while node.ready="+node.ready);
+                node.log(msg.payload);
+                throw new Error("Kafkajs Producer received message while node is not ready");
             }    
         });
+
+        node.disconnect=async function(){
+            node.log("disconnecting");
+            await node.producer.disconnect().then(() => {
+                node.status({});
+                //clearInterval(node.interval);
+                // done();
+            }).catch(e => {
+                node.onError(e);
+            });
+        }
 
         node.on('close', function(done){
             node.producer.disconnect().then(() => {

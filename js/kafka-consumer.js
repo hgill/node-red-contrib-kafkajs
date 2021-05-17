@@ -2,16 +2,29 @@ module.exports = function(RED) {
     const { Kafka } = require('kafkajs'); 
     const { v4: uuidv4 } = require('uuid');
 
+    const delegatedRetriesDict = {
+        "SERVER_DOWN": "SERVER_DOWN",
+        "SERVER_UP": "SERVER_UP"
+    }
+
     function KafkajsConsumerNode(config) {
         RED.nodes.createNode(this,config);
         var node = this;
-            
+        node.ready = false;            
         let client = RED.nodes.getNode(config.client);    
         
         if(!client){
             return;
         }
 
+        //This block is required to suppress infinite loop connections
+        if(config.delegatedRetries){
+            client.options.retry = client.options.retry || new Object();
+            client.options.retry.restartOnFailure=async (err)=>{
+                node.log("In restartOnFailure: "+err);
+                node.log(JSON.stringify(err));
+            }    
+        }
         const kafka = new Kafka(client.options)
         
         let consumerOptions = new Object();
@@ -54,11 +67,13 @@ module.exports = function(RED) {
             node.status({fill:"yellow",shape:"ring",text:"Initializing"});
 
             node.onConnect = function (){
+                node.ready = true;
                 node.lastMessageTime = new Date().getTime();
                 node.status({fill:"green",shape:"ring",text:"Ready"});
             }
     
             node.onDisconnect = function (){
+                node.ready = false;
                 node.status({fill:"red",shape:"ring",text:"Offline"});
             }
     
@@ -92,12 +107,14 @@ module.exports = function(RED) {
             }
     
             function checkLastMessageTime() {
+                if(node.ready){//we only want to reset to Idle when node is working fine.
                 if(node.lastMessageTime != null){
                     timeDiff = new Date().getTime() - node.lastMessageTime;
                     if(timeDiff > 5000){
                         node.status({fill:"yellow",shape:"ring",text:"Idle"});
-                    }
+                    } 
                 }   
+            }
             }
               
             node.interval = setInterval(checkLastMessageTime, 1000);
@@ -115,10 +132,44 @@ module.exports = function(RED) {
 
             await node.consumer.run(runOptions);
         }
-
-        node.init().catch( e => {
-            node.onError(e);
+        node.on('input', function(msg) {
+            if(config.delegatedRetries){
+                if(msg.serviceStatus && msg.payload==null){
+                    //this is a service status message. 
+                    node.log("Input>>Service Status message received: "+msg.serviceStatus);
+                    if(msg.serviceStatus==delegatedRetriesDict.SERVER_DOWN){
+                        //close open connection
+                        node.disconnect()
+                        .then(node.onDisconnect);
+                    }else if(msg.serviceStatus==delegatedRetriesDict.SERVER_UP && !node.ready){
+                        //open new connection
+                        node.init()
+                        .then(node.onConnect);
+                    }else{
+                        node.log("Not doing anything with service status")
+                    }
+                }else if(msg.serviceStatus && msg.payload!=null){
+                    throw new Error("Bad Input: Service Status cannot carry payload")
+                }
+            }
         });
+
+        if(!config.delegatedRetries){
+            node.init().catch( e => {
+                node.onError(e);
+            });
+        }
+
+        node.disconnect=async function(){
+            node.log("disconnecting");
+            await node.consumer.disconnect().then(() => {
+                node.status({});
+                //clearInterval(node.interval);
+                // done();
+            }).catch(e => {
+                node.onError(e);
+            });
+        }
 
         node.on('close', function(done){
             node.consumer.disconnect().then(() => {

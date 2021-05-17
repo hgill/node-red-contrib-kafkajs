@@ -21,6 +21,10 @@
         <input type="text" id="node-input-topic" placeholder="Topic">
     </div>
     <div class="form-row">
+        <label for="node-input-delegatedRetries" style="display: inline-block; width: auto; vertical-align: top;"><i class="fa  fa-cogs"></i> Delegated Retries</label>
+		<input id="node-input-delegatedRetries" type="checkbox" style="width:30%">
+    </div>
+    <div class="form-row">
         <label for="node-input-advancedoptions" style="display: inline-block; width: auto; vertical-align: top;"><i class="fa  fa-cogs"></i> Advanced Options</label>
 		<input id="node-input-advancedoptions" type="checkbox" style="width:30%">
     </div>
@@ -88,6 +92,7 @@
             client: {type:"kafkajs-client"},
             groupid: {value: "", require:false},
             topic: {value: "", required:true},
+            delegatedRetries:{value: false, require:false},
             advancedoptions: {value: false, require:true},
             autocommitinterval: {value: 5000, required:true},
             autocommitthreshold: {value: 100, required:true},
@@ -129,7 +134,12 @@
             })
         },
         oneditsave: function() {
-
+            
+            if($("#node-input-delegatedRetries").val()){
+                this.inputs=1
+            }else{
+                this.inputs=0
+            }
         },
         oneditresize: function(size) {
 
